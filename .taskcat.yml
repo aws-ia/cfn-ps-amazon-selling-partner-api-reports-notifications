@@ -1,6 +1,6 @@
 project:
   s3_regional_buckets: true
-  name: quickstart-amazon-selling-partner-api-reports-notifications
+  name: cfn-ps-amazon-selling-partner-api-reports-notifications
   owner: quickstart-eng@amazon.com
   regions:
     - us-east-2
@@ -17,5 +17,5 @@ tests:
       ClientSecret: override
       ReportStorageNotificationEmail: test@example.com
       QSS3BucketName: $[taskcat_autobucket]
-      QSS3KeyPrefix: quickstart-selling-partner-api-reports-notifications/
+      QSS3KeyPrefix: cfn-ps-selling-partner-api-reports-notifications/
 
