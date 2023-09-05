@@ -1,33 +1,21 @@
 project:
-  name: cfn-sample-template
-  owner: quickstart@amazon.com
-  package_lambda: false
+  s3_regional_buckets: true
+  name: quickstart-amazon-selling-partner-api-reports-notifications
+  owner: quickstart-eng@amazon.com
   regions:
-  - ap-northeast-1
-  - ap-northeast-2
-  - ap-southeast-1
-  - ap-southeast-2
-  - eu-central-1
-  - eu-west-1
-  - sa-east-1
-  - us-east-1
-  - us-west-1
-  - us-west-2
-tests:
-  sample:
-    parameters:
-      Param1: 'Inputs to Stack'
-      # Examples: of other taskcat dynamic input parameters for more into see http://taskcat.io
-      #
-      #      AvailabilityZones: $[taskcat_genaz_3]
-      #      ByteValue: 1
-      #      PasswordA: $[taskcat_genpass_8A]
-      #      PasswordB: $[taskcat_genpass_32S]
-      #      RandomNumber: $[taskcat_random-numbers]
-      #      RandomString: $[taskcat_random-string]
-      #      StackName: TestStack
-      #      UUID: $[taskcat_genuuid]
-      #
-    regions:
     - us-east-2
-    template: templates/another-workload.template.yaml
+  lambda_source_path: functions/source
+  lambda_zip_path: functions/packages
+tests:
+  default:
+    template: templates/quick-start-reports-notifications.yml
+    parameters:
+      AccessKey: override
+      SecretKey: override
+      RoleArn: override
+      ClientId: override
+      ClientSecret: override
+      ReportStorageNotificationEmail: test@example.com
+      QSS3BucketName: $[taskcat_autobucket]
+      QSS3KeyPrefix: quickstart-selling-partner-api-reports-notifications/
+

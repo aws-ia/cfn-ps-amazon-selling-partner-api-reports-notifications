@@ -1,0 +1,127 @@
+{
+  "Comment": "Report processing state machine",
+  "StartAt": "Check Report Processing Status",
+  "States": {
+    "Check Report Processing Status": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.ProcessingStatus",
+          "StringEquals": "DONE",
+          "Next": "Retrieve Report Document"
+        }
+      ],
+      "Default": "Notify Failed Execution"
+    },
+    "Notify Failed Execution": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "${SPAPIReportStorageNotificationTopicArn}",
+        "Message": {
+          "ReportType.$": "$.ReportType",
+          "ReportId.$": "$.ReportId",
+          "ProcessingStatus.$": "$.ProcessingStatus"
+        }
+      },
+      "End": true
+    },
+    "Retrieve Report Document": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "Payload.$": "$",
+        "FunctionName": "${SPAPIReportDocumentRetrievalFunctionArn}"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 6,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "Store Report Document",
+      "ResultPath": "$.RetrieveReportDocumentResult",
+      "ResultSelector": {
+        "SPAPIReportDocumentUrl.$": "$.Payload.url",
+        "SPAPIReportDocumentCompressionAlgorithm.$": "$.Payload.compressionAlgorithm"
+      }
+    },
+    "Store Report Document": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${SPAPIReportDocumentStorageFunctionArn}",
+        "Payload": {
+          "PresignedUrl.$": "$.RetrieveReportDocumentResult.SPAPIReportDocumentUrl",
+          "CompressionAlgorithm.$": "$.RetrieveReportDocumentResult.SPAPIReportDocumentCompressionAlgorithm",
+          "ReportType.$": "$.ReportType"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 6,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "Generate Presigned Url",
+      "ResultPath": "$.StoreReportDocumentResult",
+      "ResultSelector": {
+        "ReportDocumentObjectKey.$": "$.Payload"
+      }
+    },
+    "Generate Presigned Url": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${SPAPIReportPresignedUrlGeneratorFunctionArn}",
+        "Payload": {
+          "ObjectKey.$": "$.StoreReportDocumentResult.ReportDocumentObjectKey"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 6,
+          "BackoffRate": 2
+        }
+      ],
+      "ResultPath": "$.GeneratePresignedUrlResult",
+      "ResultSelector": {
+        "LocalReportDocumentUrl.$": "$.Payload"
+      },
+      "Next": "Notify Successful Execution"
+    },
+    "Notify Successful Execution": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "${SPAPIReportStorageNotificationTopicArn}",
+        "Message": {
+          "ReportType.$": "$.ReportType",
+          "ReportId.$": "$.ReportId",
+          "ProcessingStatus.$": "$.ProcessingStatus",
+          "ReportUrl.$": "$.GeneratePresignedUrlResult.LocalReportDocumentUrl",
+          "CompressionAlgorithm.$": "$.RetrieveReportDocumentResult.SPAPIReportDocumentCompressionAlgorithm"
+        }
+      },
+      "End": true
+    }
+  }
+}
