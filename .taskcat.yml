@@ -8,7 +8,7 @@ project:
   lambda_zip_path: functions/packages
 tests:
   default:
-    template: templates/quick-start-reports-notifications.yml
+    template: templates/quick-start-reports-notifications.template.yaml
     parameters:
       AccessKey: override
       SecretKey: override

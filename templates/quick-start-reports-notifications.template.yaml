@@ -686,6 +686,15 @@ Resources:
       LogGroupName: /aws/vendedlogs/ReportsNotificationsProcessorLogs
       RetentionInDays: 365
   ReportsNotificationsProcessorStateMachineExecutionRole:
+    Metadata:
+      cfn-lint:
+        config:
+          ignore_checks:
+            - EIAMPolicyActionWildcard
+            - EIAMPolicyWildcardResource
+          ignore_reasons:
+            - EIAMPolicyActionWildcard: Intent assumed for initial migration.
+            - EIAMPolicyWildcardResource: Intent assumed for initial migration.
     Type: 'AWS::IAM::Role'
     Properties:
       AssumeRolePolicyDocument:
@@ -1060,15 +1069,15 @@ Resources:
                 Action: 'execute-api:Invoke'
                 Resource:
                   - !Sub
-                    - 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApiId}/${StageName}/POST/tokens'
+                    - 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApiId}/${StageName}/POST/tokens'
                     - RestApiId: !Ref TokenStorageRestApi
                       StageName: !Ref TokenStorageStage
                   - !Sub
-                    - 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApiId}/${StageName}/POST/notifications'
+                    - 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApiId}/${StageName}/POST/notifications'
                     - RestApiId: !Ref NotificationsSubscriberRestApi
                       StageName: !Ref NotificationsSubscriberStage
                   - !Sub
-                    - 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApiId}/${StageName}/POST/reports'
+                    - 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApiId}/${StageName}/POST/reports'
                     - RestApiId: !Ref ReportCreatorRestApi
                       StageName: !Ref ReportCreatorStage
   ApiGatewayInvokeUser:
