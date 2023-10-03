@@ -1,0 +1,1097 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: This template creates the required resources for Reports & Notifications APIs Quick Start (qs-1shjfmgf2)
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: AWS Quick Start configuration
+        Parameters:
+          - QSS3BucketName
+          - QSS3KeyPrefix
+    ParameterLabels:
+      QSS3BucketName:
+        default: Quick Start S3 bucket name
+      QSS3KeyPrefix:
+        default: Quick Start S3 key prefix
+Parameters:
+  ReportsNotificationsProcessorQueueName:
+    Type: String
+    MinLength: 1
+    AllowedPattern: '^[0-9a-zA-Z-]+$'
+    Default: sp-api-reports-notifications-queue
+    Description: Name of the SQS queue that will receive reports notifications from SP-API
+  AccessKey:
+    Type: String
+    MinLength: 1
+    Description: Access Key of the IAM User that will assume the IAM Role registered in the SP-API app
+    NoEcho: true
+  SecretKey:
+    Type: String
+    MinLength: 1
+    Description: Secret Key of the IAM User that will assume the IAM Role registered in the SP-API app
+    NoEcho: true
+  RoleArn:
+    Type: String
+    MinLength: 1
+    Description: Arn of the IAM Role registered in the SP-API app
+  ClientId:
+    Type: String
+    MinLength: 1
+    Description: Client Id of the SP-API app
+    NoEcho: true
+  ClientSecret:
+    Type: String
+    MinLength: 1
+    Description: Client Secret of the SP-API app
+    NoEcho: true
+  ReportStorageNotificationEmail:
+    Type: String
+    MinLength: 1
+    AllowedPattern: '^[0-9a-zA-Z._%+-]+@[0-9a-zA-Z.-]+\.[a-zA-Z]{2,}$'
+    ConstraintDescription: must be a valid email address
+    Description: Email address to which report generation updates are sent
+  QSS3BucketName:
+    AllowedPattern: ^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$
+    ConstraintDescription: Quick Start bucket name can include numbers, lowercase
+      letters, uppercase letters, and hyphens (-). It cannot start or end with a hyphen
+      (-).
+    Default: aws-ia-us-east-1
+    Description: S3 bucket name for the Quick Start assets. This string can include
+      numbers, lowercase letters, uppercase letters, and hyphens (-). It cannot start
+      or end with a hyphen (-).
+    Type: String
+  QSS3KeyPrefix:
+    AllowedPattern: ^[0-9a-zA-Z-/]*$
+    ConstraintDescription: Quick Start key prefix can include numbers, lowercase letters,
+      uppercase letters, hyphens (-), and forward slash (/).
+    Default: cfn-ps-amazon-selling-partner-api-reports-notifications/
+    Description: S3 key prefix for the Quick Start assets. Quick Start key prefix
+      can include numbers, lowercase letters, uppercase letters, hyphens (-), and
+      forward slash (/).
+    Type: String
+Conditions:
+  UsingDefaultBucket: !Equals [!Ref QSS3BucketName, 'aws-ia-us-east-1']
+Resources:
+  NotificationsSubscriberLambdaFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: SPAPINotificationsSubscriber
+      Description: Lambda function that subscribes the seller to SP-API notifications
+      Code:
+        S3Bucket: !If
+          - UsingDefaultBucket
+          - !Sub '${QSS3BucketName}-${AWS::Region}'
+          - !Ref QSS3BucketName
+        S3Key: !Sub "${QSS3KeyPrefix}functions/packages/NotificationsSubscriber/notifications-subscriber-1.0.jar"
+      Handler: lambda.NotificationsSubscriberHandler
+      Role: !GetAtt 
+        - NotificationsSubscriberLambdaExecutionRole
+        - Arn
+      Runtime: java11
+      MemorySize: 512
+      Timeout: 60
+      Environment:
+        Variables:
+          IAM_USER_CREDENTIALS_SECRET_ARN: SPAPIUserCredentials
+          SP_API_APP_CREDENTIALS_SECRET_ARN: SPAPIAppCredentials
+          ROLE_ARN: !Ref RoleArn
+          ENCRYPTION_KEY_ARN: !GetAtt 
+            - TokenStorageKey
+            - Arn
+          SELLING_PARTNERS_TABLE_NAME: !Ref SellingPartnersDynamoDBTable
+          SQS_QUEUE_ARN: !GetAtt 
+            - ReportsNotificationsProcessorQueue
+            - Arn
+  NotificationsSubscriberLambdaExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: NotificationsSubscriberLambdaExecutionRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: SecretsReaderPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: 'secretsmanager:GetSecretValue'
+                Resource:
+                  - !Ref SPAPIUserCredentials
+                  - !Ref SPAPIAppCredentials
+        - PolicyName: DynamoDBPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: 'dynamodb:GetItem'
+                Resource: !GetAtt 
+                  - SellingPartnersDynamoDBTable
+                  - Arn
+  SPAPIUserCredentials:
+    Type: 'AWS::SecretsManager::Secret'
+    Properties:
+      Name: SPAPIUserCredentials
+      Description: Secret containing SP-API IAM User credentials
+      SecretString: !Sub 
+        - >-
+          {"AccessKeyId": "${AccessKeyIdValue}", "SecretKey":
+          "${SecretKeyValue}"}
+        - AccessKeyIdValue: !Ref AccessKey
+          SecretKeyValue: !Ref SecretKey
+  SPAPIAppCredentials:
+    Type: 'AWS::SecretsManager::Secret'
+    Properties:
+      Name: SPAPIAppCredentials
+      Description: Secret containing SP-API app credentials
+      SecretString: !Sub 
+        - >-
+          {"AppClientId": "${AppClientIdValue}", "AppClientSecret":
+          "${AppClientSecretValue}"}
+        - AppClientIdValue: !Ref ClientId
+          AppClientSecretValue: !Ref ClientSecret
+  ReportsS3Bucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: !Sub 'sp-api-reports-bucket-${AWS::Region}-${AWS::AccountId}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+  ReportsNotificationsProcessorLambdaFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: SPAPIReportsNotificationsProcessor
+      Description: >-
+        Lambda function that processes incoming reports notifications from
+        SP-API
+      Code:
+        S3Bucket: !If
+          - UsingDefaultBucket
+          - !Sub '${QSS3BucketName}-${AWS::Region}'
+          - !Ref QSS3BucketName
+        S3Key: !Sub "${QSS3KeyPrefix}functions/packages/ReportNotificationProcessor/report-notification-processor-1.0.jar"
+      Handler: lambda.ReportNotificationProcessorHandler
+      Role: !GetAtt 
+        - ReportsNotificationsProcessorLambdaExecutionRole
+        - Arn
+      Runtime: java11
+      MemorySize: 256
+      Timeout: 60
+      Environment:
+        Variables:
+          STATE_MACHINE_ARN: !Ref ReportsNotificationsProcessorStateMachine
+  ReportsNotificationsProcessorLambdaExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: ReportsNotificationsProcessorLambdaExecutionRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: SQSPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'SQS:DeleteMessage'
+                  - 'SQS:GetQueueAttributes'
+                  - 'SQS:ReceiveMessage'
+                Resource: !GetAtt 
+                  - ReportsNotificationsProcessorQueue
+                  - Arn
+        - PolicyName: StepFunctionsPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'states:StartExecution'
+                Resource: !Ref ReportsNotificationsProcessorStateMachine
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+  ReportsNotificationsProcessorEventSourceMapping:
+    Type: 'AWS::Lambda::EventSourceMapping'
+    Properties:
+      BatchSize: 1
+      Enabled: true
+      EventSourceArn: !GetAtt 
+        - ReportsNotificationsProcessorQueue
+        - Arn
+      FunctionName: !GetAtt 
+        - ReportsNotificationsProcessorLambdaFunction
+        - Arn
+  ReportsNotificationsProcessorQueue:
+    Type: 'AWS::SQS::Queue'
+    Properties:
+      QueueName: !Ref ReportsNotificationsProcessorQueueName
+      VisibilityTimeout: 300
+  ReportsNotificationsProcessorQueuePolicy:
+    Type: 'AWS::SQS::QueuePolicy'
+    Metadata:
+      cfn-lint:
+        config:
+          ignore_checks:
+            - EIAMAccountIDInPrincipal
+          ignore_reasons:
+            EIAMAccountIDInPrincipal: Account needed in policy per SP-API documentation https://github.com/amzn/selling-partner-api-docs/blob/main/guides/en-US/use-case-guides/notifications-api-use-case-guide/notifications-use-case-guide-v1.md#step-1-grant-selling-partner-api-permission-to-write-to-your-sqs-queue
+    Properties:
+      Queues:
+        - !Ref ReportsNotificationsProcessorQueue
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'SQS:SendMessage'
+              - 'SQS:GetQueueAttributes'
+            Resource: !GetAtt 
+              - ReportsNotificationsProcessorQueue
+              - Arn
+            Principal:
+              AWS:
+                - '437568002678'
+  ReportDocumentStorageLambdaFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: SPAPIReportDocumentStorage
+      Description: >-
+        Lambda function that copies the generated report into the selling
+        partner's account
+      Code:
+        S3Bucket: !If
+          - UsingDefaultBucket
+          - !Sub '${QSS3BucketName}-${AWS::Region}'
+          - !Ref QSS3BucketName
+        S3Key: !Sub "${QSS3KeyPrefix}functions/packages/ReportDocumentStorage/report-document-storage-1.0.jar"
+      Handler: lambda.ReportDocumentStorageHandler
+      Role: !GetAtt 
+        - ReportDocumentStorageLambdaExecutionRole
+        - Arn
+      Runtime: java11
+      MemorySize: 512
+      Timeout: 60
+      Environment:
+        Variables:
+          DESTINATION_S3_BUCKET_NAME: !Ref ReportsS3Bucket
+  ReportDocumentStorageLambdaExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: ReportDocumentStorageLambdaExecutionRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: S3WriterPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: 's3:PutObject'
+                Resource: !Sub 
+                  - '${BucketArn}/*'
+                  - BucketArn: !GetAtt 
+                      - ReportsS3Bucket
+                      - Arn
+  ReportCreatorLambdaFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: SPAPIReportCreator
+      Description: Lambda function that submit a report creation request to SP-API
+      Code:
+        S3Bucket: !If
+          - UsingDefaultBucket
+          - !Sub '${QSS3BucketName}-${AWS::Region}'
+          - !Ref QSS3BucketName
+        S3Key: !Sub "${QSS3KeyPrefix}functions/packages/ReportCreator/report-creator-1.0.jar"
+      Handler: lambda.ReportCreatorHandler
+      Role: !GetAtt 
+        - ReportCreatorLambdaExecutionRole
+        - Arn
+      Runtime: java11
+      MemorySize: 512
+      Timeout: 60
+      Environment:
+        Variables:
+          IAM_USER_CREDENTIALS_SECRET_ARN: SPAPIUserCredentials
+          SP_API_APP_CREDENTIALS_SECRET_ARN: SPAPIAppCredentials
+          ROLE_ARN: !Ref RoleArn
+          ENCRYPTION_KEY_ARN: !GetAtt 
+            - TokenStorageKey
+            - Arn
+          SELLING_PARTNERS_TABLE_NAME: !Ref SellingPartnersDynamoDBTable
+          REPORTS_TABLE_NAME: !Ref ReportsDynamoDBTable
+  ReportCreatorLambdaExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: ReportCreatorLambdaExecutionRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: SecretsReaderPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: 'secretsmanager:GetSecretValue'
+                Resource:
+                  - !Ref SPAPIUserCredentials
+                  - !Ref SPAPIAppCredentials
+        - PolicyName: DynamoDBReaderPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: 'dynamodb:GetItem'
+                Resource: !GetAtt 
+                  - SellingPartnersDynamoDBTable
+                  - Arn
+        - PolicyName: DynamoDBWriterPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: 'dynamodb:PutItem'
+                Resource: !GetAtt 
+                  - ReportsDynamoDBTable
+                  - Arn
+  ReportDocumentRetrievalLambdaFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: SPAPIReportDocumentRetrieval
+      Description: Lambda function that retrieves a report document from SP-API
+      Code:
+        S3Bucket: !If
+          - UsingDefaultBucket
+          - !Sub '${QSS3BucketName}-${AWS::Region}'
+          - !Ref QSS3BucketName
+        S3Key: !Sub "${QSS3KeyPrefix}functions/packages/ReportDocumentRetrieval/report-document-retrieval-1.0.jar"
+      Handler: lambda.ReportDocumentRetrievalHandler
+      Role: !GetAtt 
+        - ReportDocumentRetrievalLambdaExecutionRole
+        - Arn
+      Runtime: java11
+      MemorySize: 512
+      Timeout: 60
+      Environment:
+        Variables:
+          IAM_USER_CREDENTIALS_SECRET_ARN: SPAPIUserCredentials
+          SP_API_APP_CREDENTIALS_SECRET_ARN: SPAPIAppCredentials
+          ROLE_ARN: !Ref RoleArn
+          ENCRYPTION_KEY_ARN: !GetAtt 
+            - TokenStorageKey
+            - Arn
+          SELLING_PARTNERS_TABLE_NAME: !Ref SellingPartnersDynamoDBTable
+          REPORTS_TABLE_NAME: !Ref ReportsDynamoDBTable
+  ReportDocumentRetrievalLambdaExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: ReportDocumentRetrievalLambdaExecutionRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: SecretsReaderPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: 'secretsmanager:GetSecretValue'
+                Resource:
+                  - !Ref SPAPIUserCredentials
+                  - !Ref SPAPIAppCredentials
+        - PolicyName: DynamoDBReaderPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: 'dynamodb:GetItem'
+                Resource:
+                  - !GetAtt 
+                    - SellingPartnersDynamoDBTable
+                    - Arn
+                  - !GetAtt 
+                    - ReportsDynamoDBTable
+                    - Arn
+  TokenStorageLambdaFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: SPAPITokenStorage
+      Description: Lambda function that stores the selling partner's token into DynamoDB
+      Code:
+        S3Bucket: !If
+          - UsingDefaultBucket
+          - !Sub '${QSS3BucketName}-${AWS::Region}'
+          - !Ref QSS3BucketName
+        S3Key: !Sub "${QSS3KeyPrefix}functions/packages/TokenStorage/token-storage-1.0.jar"
+      Handler: lambda.TokenStorageHandler
+      Role: !GetAtt 
+        - TokenStorageLambdaExecutionRole
+        - Arn
+      Runtime: java11
+      MemorySize: 512
+      Timeout: 60
+      Environment:
+        Variables:
+          ENCRYPTION_KEY_ARN: !GetAtt 
+            - TokenStorageKey
+            - Arn
+          SELLING_PARTNERS_TABLE_NAME: !Ref SellingPartnersDynamoDBTable
+  TokenStorageLambdaExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: TokenStorageLambdaExecutionRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: DynamoDBPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'dynamodb:PutItem'
+                  - 'dynamodb:UpdateItem'
+                Resource: !GetAtt 
+                  - SellingPartnersDynamoDBTable
+                  - Arn
+  ReportPresignedUrlGeneratorLambdaFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: SPAPIReportPresignedUrlGenerator
+      Description: Lambda function that generates a presigned url for a report document
+      Code:
+        S3Bucket: !If
+          - UsingDefaultBucket
+          - !Sub '${QSS3BucketName}-${AWS::Region}'
+          - !Ref QSS3BucketName
+        S3Key: !Sub "${QSS3KeyPrefix}functions/packages/ReportPresignedUrlGenerator/report-presigned-url-generator-1.0.jar"
+      Handler: lambda.ReportPresignedUrlGeneratorHandler
+      Role: !GetAtt 
+        - ReportPresignedUrlGeneratorLambdaExecutionRole
+        - Arn
+      Runtime: java11
+      MemorySize: 512
+      Timeout: 60
+      Environment:
+        Variables:
+          S3_BUCKET_NAME: !Ref ReportsS3Bucket
+  ReportPresignedUrlGeneratorLambdaExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: ReportPresignedUrlGeneratorLambdaExecutionRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: S3ReaderPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: 's3:GetObject'
+                Resource: !Sub 
+                  - '${BucketArn}/*'
+                  - BucketArn: !GetAtt 
+                      - ReportsS3Bucket
+                      - Arn
+  TokenStorageKey:
+    Type: 'AWS::KMS::Key'
+    Metadata:
+      cfn-lint:
+        config:
+          ignore_checks:
+            - EIAMPolicyWildcardResource
+          ignore_reasons:
+            abc: In a KMS key policy, * wildcard means "this KMS key" and not "any resource" https://docs.aws.amazon.com/kms/latest/developerguide/key-policies.html
+    Properties:
+      Description: SP-API token storage encryption key
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: 2012-10-17
+        Id: token-storage-key-policy
+        Statement:
+          - Sid: Enable IAM policies
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action:
+              - 'kms:DescribeKey'
+              - 'kms:CreateGrant'
+              - 'kms:EnableKey'
+              - 'kms:DisableKey'
+              - 'kms:EnableKeyRotation'
+              - 'kms:DisableKeyRotation'
+              - 'kms:GetKeyPolicy'
+              - 'kms:GetKeyRotationStatus'
+              - 'kms:ListGrants'
+              - 'kms:ListKeyPolicies'
+              - 'kms:PutKeyPolicy'
+              - 'kms:RevokeGrant'
+              - 'kms:ScheduleKeyDeletion'
+              - 'kms:CancelKeyDeletion'
+            Resource: '*'
+          - Sid: Allow use of the key
+            Effect: Allow
+            Principal:
+              AWS:
+                - !GetAtt 
+                  - TokenStorageLambdaExecutionRole
+                  - Arn
+                - !GetAtt 
+                  - NotificationsSubscriberLambdaExecutionRole
+                  - Arn
+                - !GetAtt 
+                  - ReportCreatorLambdaExecutionRole
+                  - Arn
+                - !GetAtt 
+                  - ReportDocumentRetrievalLambdaExecutionRole
+                  - Arn
+            Action:
+              - 'kms:Encrypt'
+              - 'kms:Decrypt'
+              - 'kms:ReEncryptFrom'
+              - 'kms:ReEncryptTo'
+              - 'kms:GenerateDataKey'
+              - 'kms:GenerateDataKeyWithoutPlaintext'
+              - 'kms:GenerateDataKeyPairWithoutPlaintext'
+              - 'kms:GenerateDataKeyPair'
+              - 'kms:DescribeKey'
+            Resource: '*'
+  SellingPartnersDynamoDBTable:
+    Type: 'AWS::DynamoDB::Table'
+    Properties:
+      TableName: SellingPartners
+      AttributeDefinitions:
+        - AttributeName: SellerId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: SellerId
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+  ReportsDynamoDBTable:
+    Type: 'AWS::DynamoDB::Table'
+    Properties:
+      TableName: SPAPIReports
+      AttributeDefinitions:
+        - AttributeName: ReportId
+          AttributeType: S
+        - AttributeName: SellerId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: ReportId
+          KeyType: HASH
+        - AttributeName: SellerId
+          KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST
+  ReportStorageNotificationSNSTopic:
+    Type: 'AWS::SNS::Topic'
+    Properties:
+      TopicName: SPAPIReportStorageNotificationTopic
+  ReportStorageNotificationSubscription:
+    Type: 'AWS::SNS::Subscription'
+    Properties:
+      TopicArn: !Ref ReportStorageNotificationSNSTopic
+      Protocol: email
+      Endpoint: !Ref ReportStorageNotificationEmail
+  ReportsNotificationsProcessorStateMachine:
+    Type: 'AWS::StepFunctions::StateMachine'
+    Properties:
+      StateMachineName: ReportsNotificationsProcessor
+      StateMachineType: STANDARD
+      DefinitionS3Location:
+        Bucket: !Ref QSS3BucketName
+        Key: !Sub ${QSS3KeyPrefix}step-functions/ReportsNotificationsProcessor.json
+      DefinitionSubstitutions:
+        SPAPIReportStorageNotificationTopicArn: !Ref ReportStorageNotificationSNSTopic
+        SPAPIReportDocumentRetrievalFunctionArn: !GetAtt
+          - ReportDocumentRetrievalLambdaFunction
+          - Arn
+        SPAPIReportDocumentStorageFunctionArn: !GetAtt
+          - ReportDocumentStorageLambdaFunction
+          - Arn
+        SPAPIReportPresignedUrlGeneratorFunctionArn: !GetAtt
+          - ReportPresignedUrlGeneratorLambdaFunction
+          - Arn
+      RoleArn: !GetAtt 
+        - ReportsNotificationsProcessorStateMachineExecutionRole
+        - Arn
+      LoggingConfiguration:
+        Level: ALL
+        IncludeExecutionData: true
+        Destinations:
+          - CloudWatchLogsLogGroup:
+              LogGroupArn: !GetAtt 
+                - ReportsNotificationsProcessorLogGroup
+                - Arn
+  ReportsNotificationsProcessorLogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: /aws/vendedlogs/ReportsNotificationsProcessorLogs
+      RetentionInDays: 365
+  ReportsNotificationsProcessorStateMachineExecutionRole:
+    Metadata:
+      cfn-lint:
+        config:
+          ignore_checks:
+            - EIAMPolicyActionWildcard
+            - EIAMPolicyWildcardResource
+          ignore_reasons:
+            - EIAMPolicyActionWildcard: Intent assumed for initial migration.
+            - EIAMPolicyWildcardResource: Intent assumed for initial migration.
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: CloudWatchPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogDelivery'
+                  - 'logs:GetLogDelivery'
+                  - 'logs:UpdateLogDelivery'
+                  - 'logs:DeleteLogDelivery'
+                  - 'logs:ListLogDeliveries'
+                  - 'logs:PutResourcePolicy'
+                  - 'logs:DescribeResourcePolicies'
+                  - 'logs:DescribeLogGroups'                  
+                Resource: '*'
+                # Resource: !GetAtt 
+                #   - ReportsNotificationsProcessorLogGroup
+                #   - Arn
+              # - Effect: Allow
+              #   Action:
+              #     - 'logs:DescribeLogGroups'
+              #   Resource: !GetAtt 
+              #     - ReportsNotificationsProcessorLogGroup
+              #     - Arn
+        - PolicyName: LambdaInvokePolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'lambda:InvokeFunction'
+                Resource:
+                  - !GetAtt
+                    - ReportDocumentRetrievalLambdaFunction
+                    - Arn
+                  - !GetAtt
+                    - ReportDocumentStorageLambdaFunction
+                    - Arn
+                  - !GetAtt
+                    - ReportPresignedUrlGeneratorLambdaFunction
+                    - Arn
+        - PolicyName: SNSPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'sns:Publish'
+                Resource: !Ref ReportStorageNotificationSNSTopic
+  TokenStorageRestApi:
+    Type: 'AWS::ApiGateway::RestApi'
+    Properties:
+      Name: TokenStorageRestApi
+      Description: Token Storage Lambda-backed REST API
+      ApiKeySourceType: HEADER
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+  TokenStorageResource:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      ParentId: !GetAtt 
+        - TokenStorageRestApi
+        - RootResourceId
+      RestApiId: !Ref TokenStorageRestApi
+      PathPart: tokens
+  TokenStoragePostMethod:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      HttpMethod: POST
+      OperationName: PutToken
+      AuthorizationType: AWS_IAM
+      ApiKeyRequired: false
+      ResourceId: !Ref TokenStorageResource
+      RestApiId: !Ref TokenStorageRestApi
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: POST
+        Uri: !Sub
+          - 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${TokenStorageLambdaFunctionArn}/invocations'
+          - TokenStorageLambdaFunctionArn: !GetAtt 
+            - TokenStorageLambdaFunction
+            - Arn
+        Credentials: !GetAtt 
+          - TokenStorageApiGatewayExecutionRole
+          - Arn
+        PassthroughBehavior: NEVER
+        RequestTemplates:
+          application/json: |-
+            {
+             "SellerId": $input.json('$.SellerId'), 
+             "RefreshToken": $input.json('$.RefreshToken') 
+            }
+        IntegrationResponses:
+          - StatusCode: '200'
+        TimeoutInMillis: 29000
+      MethodResponses:
+        - StatusCode: '200'
+          ResponseModels:
+            application/json: !Ref TokenStorageModel
+  TokenStorageDeployment:
+    Type: 'AWS::ApiGateway::Deployment'
+    DependsOn: TokenStoragePostMethod
+    Properties:
+      Description: Token Storage Lambda API deployment
+      RestApiId: !Ref TokenStorageRestApi
+  TokenStorageModel:
+    Type: 'AWS::ApiGateway::Model'
+    Properties:
+      Name: TokenStorageModel
+      ContentType: 'application/json'
+      RestApiId: !Ref TokenStorageRestApi
+      Schema: {}
+  TokenStorageStage:
+    Type: 'AWS::ApiGateway::Stage'
+    Properties:
+      DeploymentId: !Ref TokenStorageDeployment
+      Description: Prod stage
+      RestApiId: !Ref TokenStorageRestApi
+      StageName: 'prod'
+  TokenStorageApiGatewayExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: TokenStorageApiGatewayExecutionRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - apigateway.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: LambdaInvokePolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'lambda:InvokeFunction'
+                Resource:
+                  - !GetAtt 
+                    - TokenStorageLambdaFunction
+                    - Arn  
+  NotificationsSubscriberRestApi:
+    Type: 'AWS::ApiGateway::RestApi'
+    Properties:
+      Name: NotificationsSubscriberRestApi
+      Description: Notifications Subscriber Lambda-backed REST API
+      ApiKeySourceType: HEADER
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+  NotificationsSubscriberResource:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      ParentId: !GetAtt 
+        - NotificationsSubscriberRestApi
+        - RootResourceId
+      RestApiId: !Ref NotificationsSubscriberRestApi
+      PathPart: notifications
+  NotificationsSubscriberPostMethod:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      HttpMethod: POST
+      OperationName: CreateSubscription
+      AuthorizationType: AWS_IAM
+      ApiKeyRequired: false
+      ResourceId: !Ref NotificationsSubscriberResource
+      RestApiId: !Ref NotificationsSubscriberRestApi
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: POST
+        Uri: !Sub
+          - 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${NotificationsSubscriberLambdaFunctionArn}/invocations'
+          - NotificationsSubscriberLambdaFunctionArn: !GetAtt 
+            - NotificationsSubscriberLambdaFunction
+            - Arn
+        Credentials: !GetAtt 
+          - NotificationsSubscriberApiGatewayExecutionRole
+          - Arn
+        PassthroughBehavior: NEVER
+        RequestTemplates:
+          application/json: |-
+            {
+             "SellerId": $input.json('$.SellerId'), 
+             "RegionCode": $input.json('$.RegionCode'),
+             "NotificationType": $input.json('$.NotificationType')
+            }
+        IntegrationResponses:
+          - StatusCode: '200'
+        TimeoutInMillis: 29000
+      MethodResponses:
+        - StatusCode: '200'
+          ResponseModels:
+            application/json: !Ref NotificationsSubscriberModel
+  NotificationsSubscriberDeployment:
+    Type: 'AWS::ApiGateway::Deployment'
+    DependsOn: NotificationsSubscriberPostMethod
+    Properties:
+      Description: Notifications Subscriber Lambda API deployment
+      RestApiId: !Ref NotificationsSubscriberRestApi
+  NotificationsSubscriberModel:
+    Type: 'AWS::ApiGateway::Model'
+    Properties:
+      Name: NotificationsSubscriberModel
+      ContentType: 'application/json'
+      RestApiId: !Ref NotificationsSubscriberRestApi
+      Schema: {}
+  NotificationsSubscriberStage:
+    Type: 'AWS::ApiGateway::Stage'
+    Properties:
+      DeploymentId: !Ref NotificationsSubscriberDeployment
+      Description: Prod stage
+      RestApiId: !Ref NotificationsSubscriberRestApi
+      StageName: 'prod'
+  NotificationsSubscriberApiGatewayExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: NotificationsSubscriberApiGatewayExecutionRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - apigateway.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: LambdaInvokePolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'lambda:InvokeFunction'
+                Resource:
+                  - !GetAtt 
+                    - NotificationsSubscriberLambdaFunction
+                    - Arn
+  ReportCreatorRestApi:
+    Type: 'AWS::ApiGateway::RestApi'
+    Properties:
+      Name: ReportCreatorRestApi
+      Description: Report Creator Lambda-backed REST API
+      ApiKeySourceType: HEADER
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+  ReportCreatorResource:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      ParentId: !GetAtt 
+        - ReportCreatorRestApi
+        - RootResourceId
+      RestApiId: !Ref ReportCreatorRestApi
+      PathPart: reports
+  ReportCreatorPostMethod:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      HttpMethod: POST
+      OperationName: CreateReport
+      AuthorizationType: AWS_IAM
+      ApiKeyRequired: false
+      ResourceId: !Ref ReportCreatorResource
+      RestApiId: !Ref ReportCreatorRestApi
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: POST
+        Uri: !Sub
+          - 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ReportCreatorLambdaFunctionArn}/invocations'
+          - ReportCreatorLambdaFunctionArn: !GetAtt 
+            - ReportCreatorLambdaFunction
+            - Arn
+        Credentials: !GetAtt 
+          - ReportCreatorApiGatewayExecutionRole
+          - Arn
+        PassthroughBehavior: NEVER
+        RequestTemplates:
+          application/json: |-
+            {
+             "SellerId": $input.json('$.SellerId'), 
+             "RegionCode": $input.json('$.RegionCode'),
+             "ReportType": $input.json('$.ReportType'),
+             "MarketplaceIds": $input.json('$.MarketplaceIds'),
+             "ReportDataStartTime": $input.json('$.ReportDataStartTime'),
+             "ReportDataEndTime": $input.json('$.ReportDataEndTime'),
+             "ReportOptions": $input.json('$.ReportOptions')
+            }
+        IntegrationResponses:
+          - StatusCode: '200'
+        TimeoutInMillis: 29000
+      MethodResponses:
+        - StatusCode: '200'
+          ResponseModels:
+            application/json: !Ref ReportCreatorModel
+  ReportCreatorDeployment:
+    Type: 'AWS::ApiGateway::Deployment'
+    DependsOn: ReportCreatorPostMethod
+    Properties:
+      Description: Report Creator Lambda API deployment
+      RestApiId: !Ref ReportCreatorRestApi
+  ReportCreatorModel:
+    Type: 'AWS::ApiGateway::Model'
+    Properties:
+      Name: ReportCreatorModel
+      ContentType: 'application/json'
+      RestApiId: !Ref ReportCreatorRestApi
+      Schema: {}
+  ReportCreatorStage:
+    Type: 'AWS::ApiGateway::Stage'
+    Properties:
+      DeploymentId: !Ref ReportCreatorDeployment
+      Description: Prod stage
+      RestApiId: !Ref ReportCreatorRestApi
+      StageName: 'prod'
+  ReportCreatorApiGatewayExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: ReportCreatorApiGatewayExecutionRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - apigateway.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: LambdaInvokePolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'lambda:InvokeFunction'
+                Resource:
+                  - !GetAtt 
+                    - ReportCreatorLambdaFunction
+                    - Arn
+  ApiGatewayInvokeRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: ApiGatewayInvokeRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: APIGatewayInvokePolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: 'execute-api:Invoke'
+                Resource:
+                  - !Sub
+                    - 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApiId}/${StageName}/POST/tokens'
+                    - RestApiId: !Ref TokenStorageRestApi
+                      StageName: !Ref TokenStorageStage
+                  - !Sub
+                    - 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApiId}/${StageName}/POST/notifications'
+                    - RestApiId: !Ref NotificationsSubscriberRestApi
+                      StageName: !Ref NotificationsSubscriberStage
+                  - !Sub
+                    - 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApiId}/${StageName}/POST/reports'
+                    - RestApiId: !Ref ReportCreatorRestApi
+                      StageName: !Ref ReportCreatorStage
+  ApiGatewayInvokeUser:
+    Type: 'AWS::IAM::User'
+    Properties:
+      UserName: ApiGatewayInvokeUser
+      Policies:
+        - PolicyName: AssumeRolePolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: 'sts:AssumeRole'
+                Resource: !GetAtt
+                  - ApiGatewayInvokeRole
+                  - Arn
+

@@ -1,6 +1,42 @@
-// Add any unique troubleshooting steps here.
+*Q.* I encountered a *CREATE_FAILED* error when I launched the Quick Start.
 
-For troubleshooting common Partner Solution issues, refer to the https://fwd.aws/rA69w?[AWS Partner Solution General Information Guide^] and https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/troubleshooting.html[Troubleshooting CloudFormation^].
+*A.* If AWS CloudFormation fails to create the stack, relaunch the template with *Rollback on failure* set to *Disabled*. This setting is under *Advanced* in the AWS CloudFormation console on the *Configure stack options* page. With this setting, the stack’s state is retained, and the instance keeps running so that you can troubleshoot the issue. (For Windows, look at the log files in `%ProgramFiles%\Amazon\EC2ConfigService` and `C:\cfn\log`.)
 
-// == Resources
-// Uncomment section and add links to any external resources that are specified by the partner.
+WARNING: When you set *Rollback on failure* to *Disabled*, you continue to incur AWS charges for this stack. Delete the stack when you finish troubleshooting.
+
+For more information, see https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/troubleshooting.html[Troubleshooting AWS CloudFormation^].
+
+'''
+*Q.* I encountered a size-limitation error when I deployed the AWS CloudFormation templates.
+
+*A.* Launch the Quick Start templates from the links in this guide or from another S3 bucket. If you deploy the templates from a local copy on your computer or from a location other than an S3 bucket, you might encounter template-size limitations. For more information, see http://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/cloudformation-limits.html[AWS CloudFormation quotas^].
+
+'''
+*Q.* Where do I find the client ID and client secret I need during installation?
+
+*A.* Sign in to https://sellercentral.amazon.com/[Amazon Seller Central^]. Under *Partner Network*, choose *Develop Apps*. Then, under *LWA credentials*, choose *View*.
+
+'''
+*Q.* Which values should I use for `Access Key` and `Secret Key` parameters during the installation?
+
+*A.* Specify the AWS IAM user's access Key and secret key that you are currently using to assume role while signing your requests to SP-API.
+
+'''
+*Q.* Which value should I use for the `Role ARN` parameter during the installation?
+
+*A.* You have to specify the IAM role ARN that is currently registered in your app. To view the IAM role ARN for an app, sign in to https://sellercentral.amazon.com/[Amazon Seller Central^]. Under *Partner Network*, choose *Develop Apps*. Then, choose **Edit App**.
+
+'''
+*Q.* My application is currently registered with an AWS IAM user ARN instead of a role ARN, can I still use this Quick Start?
+
+*A.* No. In order to use this Quick Start you have to update your application to use an AWS IAM role ARN instead. This is a best practice that increases the security of your application. To update this information, sign in to https://sellercentral.amazon.com/[Amazon Seller Central^]. Under *Partner Network*, choose *Develop Apps*. Then choose **Edit App**.
+
+'''
+*Q.* Will I automatically start receiving notifications for report processing completion after installing this Quick Start?
+
+*A.* No. In order to start receiving notifications you must create the corresponding subscription by using the Amazon API Gateway `NotificationsSubscriberRestApi` endpoint. Subscriptions are specific to Selling Partners. You must call `NotificationsSubscriberRestApi` for each selling partner that you want to onboard to this Quick Start.
+
+'''
+*Q.* Is it mandatory to store selling partner refresh tokens using the Amazon API Gateway `TokenStorageRestApi` endpoint provided in this Quick Start?
+
+*A.* Yes. The AWS Step Functions workflow that is invoked when a report processing completion notification is received communicates to SP-API asynchronously. It signs the corresponding requests with the selling partner's refresh token. For this reason, the refresh tokens have to be stored.

@@ -1,28 +1,26 @@
 :xrefstyle: short
 
-Deploying this Partner Solution with default parameters builds the following {partner-product-short-name} environment in the
-AWS Cloud.
-
-// Replace this example diagram with your own. Follow our wiki guidelines: https://w.amazon.com/bin/view/AWS_Quick_Starts/Process_for_PSAs/#HPrepareyourarchitecturediagram. Upload your source PowerPoint file to the GitHub {deployment name}/docs/images/ directory in its repository.
+Deploying this Quick Start with default parameters builds the following {partner-product-short-name} environment in the AWS Cloud.
 
 [#architecture1]
-.Partner Solution architecture for {partner-product-short-name} on AWS
-image::../docs/deployment_guide/images/architecture_diagram.png[Architecture]
+.Quick Start architecture for {partner-product-short-name} on AWS
+image::../images/architecture_diagram.png[Architecture]
 
-As shown in <<architecture1>>, this Partner Solution sets up the following:
+As shown in <<architecture1>>, the Quick Start sets up the following:
 
-* A highly available architecture that spans two Availability Zones.*
-* A virtual private cloud (VPC) configured with public and private subnets, according to AWS
-best practices, to provide you with your own virtual network on AWS.*
-* In the public subnets:
-** Managed network address translation (NAT) gateways to allow outbound
-internet access for resources in the private subnets.*
-** A Linux bastion host in an Auto Scaling group to allow inbound Secure
-Shell (SSH) access to Amazon Elastic Compute Cloud (Amazon EC2) instances in public and private subnets.*
-* In the private subnets:
-** <item>.
-** <item>.
-// Add bullet points for any additional components that are included in the deployment. Ensure that the additional components are shown in the architecture diagram. End each bullet with a period.
-* <describe any additional components>.
-
-[.small]#* The template that deploys this Partner Solution into an existing VPC skips the components marked by asterisks and prompts you for your existing VPC configuration.#
+* Three Amazon API Gateway HTTP endpoints, providing REST APIs for three Lambda functions.
+** Token storage to encrypt and store the selling partner's SP-API refresh token.
+** Notifications subscriber to subscribe the selling partner to the SP-API notifications.
+** Report creator to submit report creation requests to the SP-API.
+* An AWS IAM role to authenticate API Gateway requests.
+* Two Amazon Dynamo DB tables, one for client tokens and another for report information.
+* A selling partner notifications Amazon Simple Queue Service (Amazon SQS) queue to receive SP-API notifications.
+* A notifications processor Lambda function to listen for SP-API messages and invoke an AWS Step Functions workflow.
+* An AWS Step Functions workflow (Report processor) containing the following resources:
+** A report document retrieval Lambda function to retrieve report information from the SP-API.
+** A report document storage Lambda function to store reports in an Amazon Simple Storage Service (Amazon S3) bucket.
+** A presigned URL generator Lambda function to generate presigned URLs for the stored reports.
+** An Amazon Simple Notification Service (Amazon SNS) topic to send email notifications of completed report processing.
+** An Amazon S3 bucket to store reports.
+* AWS Key Management Service (AWS KMS) to encrypt and decrypt client tokens.
+* AWS Secrets Manager to store SP-API IAM user credentials and SP-API application credentials.

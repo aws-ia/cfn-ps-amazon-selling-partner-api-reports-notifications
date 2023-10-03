@@ -1,3 +1,12 @@
-//Include any predeployment steps here, such as signing up for a Marketplace AMI or making any changes to a partner account. If there are no predeployment steps, leave this file empty.
-
 == Predeployment steps
+
+=== Prepare your Seller Central account
+
+You must have a Professional selling plan on https://sellercentral.amazon.com[Amazon Seller Central^] and https://developer-docs.amazon.com/sp-api/docs/registering-as-a-developer[register^] as a developer to create SP-API applications.
+
+Your SP-API application must be registered with an AWS IAM role. If you are using an AWS IAM user instead, follow these steps:
+
+. Sign in to https://sellercentral.amazon.com/[Amazon Seller Central^].
+. Under *Partner Network*, choose *Develop Apps*.
+. Choose **Edit App**.
+. Update the application to use an AWS IAM role.
