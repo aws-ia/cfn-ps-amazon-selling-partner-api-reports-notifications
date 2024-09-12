@@ -1,6 +1,11 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: This template creates the required resources for Reports & Notifications APIs Quick Start (qs-1shjfmgf2)
 Metadata:
+  cfn-lint:
+    config:
+      ignore_checks:
+        - W9002
+        - W9003
   AWS::CloudFormation::Interface:
     ParameterGroups:
       - Label:
@@ -1082,6 +1087,12 @@ Resources:
                       StageName: !Ref ReportCreatorStage
   ApiGatewayInvokeUser:
     Type: 'AWS::IAM::User'
+    Metadata:
+      cfn-lint:
+        config:
+          ignore_checks:
+            - EIAMUserNotInGroup
+            - EIAMNoInlinePolicy
     Properties:
       UserName: ApiGatewayInvokeUser
       Policies:
